@@ -15,7 +15,7 @@ using namespace std;
 void threadproc(int threadid, void *ptr);
 
 /////////////////////////////////////////////////////////////////////////////
-// 
+// class that holds one I/O read & upload piece
 class FileChunk
 {
 public:
@@ -44,7 +44,7 @@ public:
 //
 class BlockUpload
 {
-public:
+private:
 	int countThreads;                                       // how many threads to use for parallell upload
 	unsigned long chunkSize;                                // size in bytes to send as chunks
 	std::string filename;                                   // local file to upload
@@ -53,6 +53,8 @@ public:
 	azure::storage::cloud_storage_account storage_account;  // Azure Storage Account object
 	azure::storage::cloud_blob_client blob_client;          // Azure Storage client object
 	azure::storage::cloud_blob_container container;         // Azure Storage Container object
+
+public:
 	float elapsed_secs;                                     // how long in seconds the upload took
 	unsigned long total_bytes;                              // bytes uploaded
 	bool verbose;
@@ -65,6 +67,8 @@ public:
 		total_bytes = 0;
 		elapsed_secs = (float)0;
 	}
+	/////////////////////////////////////////////////////////////////////////////
+	// hook up the Azure Storage stuff based on account name, key and container name
 	void ConnectToAzureStorage(std::string storageAccountName, std::string storageAccessKey, std::string containerName)
 	{
 		std::string connstr = "DefaultEndpointsProtocol=https;AccountName=" + storageAccountName + ";AccountKey=" + storageAccessKey;
@@ -72,6 +76,8 @@ public:
 		utility::string_t blobContainer( containerName.begin(), containerName.end() );
 		ConnectToAzureStorage(storage_connection_string, blobContainer);
 	}
+	/////////////////////////////////////////////////////////////////////////////
+	// hook up the Azure Storage stuff
 	void ConnectToAzureStorage( utility::string_t connection_string, utility::string_t containerName )
 	{
 		storage_account = azure::storage::cloud_storage_account::parse( connection_string );
@@ -79,22 +85,24 @@ public:
 		container = blob_client.get_container_reference( containerName );
 		container.create_if_not_exists();
 	}
+	/////////////////////////////////////////////////////////////////////////////
 	// upload local file - blob will have same name as local file
-	int UploadFile( std::string filename )
+	bool UploadFile( std::string filename )
 	{
 		size_t found = filename.find_last_of("/\\");
 		//std::string folder = filename.substr(0, found);
 		std::string blobFilename = filename.substr(found + 1);
 		return UploadFile( filename, blobFilename );
 	}
+	/////////////////////////////////////////////////////////////////////////////
 	// upload local file and naming the blob
-	int UploadFile(std::string filename, std::string blobFilename )
+	bool UploadFile(std::string filename, std::string blobFilename )
 	{
 		// get file size
 		ifstream file( filename, ios::in | ios::binary | ios::ate );
 		if (!file.is_open())
 		{
-			return 1;
+			return false;
 		}
 
 		// how large is the file?
@@ -166,49 +174,55 @@ public:
 
 		this->elapsed_secs = (float)elapsed / (float)CLOCKS_PER_SEC;
 
-		return 0;
+		return true;
 	} //
+	/////////////////////////////////////////////////////////////////////////////
+	// processing that takes part in a separate thread 
+	void ThreadProc( int threadid )
+	{
+		ifstream file( this->filename, ios::in | ios::binary | ios::ate);
+		if (file.is_open())
+		{
+			azure::storage::cloud_block_blob blob = this->container.get_block_blob_reference( this->blobName );
+
+			std::vector<uint8_t> buffer( this->chunkSize );
+			// get the next file I/O task from hte queue and read that chunk
+			while (!this->queueChunks.empty())
+			{
+				FileChunk *fc = (FileChunk*)(this->queueChunks.front());
+				this->queueChunks.pop();
+
+				// read the specified chunk from the file
+				file.seekg(fc->startpos, ios::beg);
+				file.read((char*)&buffer[0], fc->length);
+				fc->bytesread = (unsigned long)file.gcount();
+
+				// create Azure Block ID value
+				fc->block_id = utility::conversions::to_base64(fc->id);
+				auto stream = concurrency::streams::bytestream::open_istream(buffer);
+				utility::string_t md5 = _XPLATSTR("");
+
+				unsigned long t0 = clock();
+
+				blob.upload_block(fc->block_id, stream, md5);
+
+				fc->seconds = (float)(clock() - t0) / (float)CLOCKS_PER_SEC;
+				fc->threadid = threadid;
+				fc->completed = true;
+			}
+			file.close();
+		}
+	}
 };
 /////////////////////////////////////////////////////////////////////////////
-//
-void threadproc(int threadid, void *ptr)
+// thread entry point 
+void threadproc( int threadid, void *ptr )
 {
-	BlockUpload *blkup = (BlockUpload*)ptr;
-	ifstream file(blkup->filename, ios::in | ios::binary | ios::ate);
-	if (file.is_open())
-	{
-		azure::storage::cloud_block_blob blob = blkup->container.get_block_blob_reference(blkup->blobName);
-
-		std::vector<uint8_t> buffer(blkup->chunkSize);
-		// get the next file I/O task from hte queue and read that chunk
-		while (!blkup->queueChunks.empty())
-		{
-			FileChunk *fc = (FileChunk*)(blkup->queueChunks.front());
-			blkup->queueChunks.pop();
-
-			// read the specified chunk from the file
-			file.seekg(fc->startpos, ios::beg);
-			file.read((char*)&buffer[0], fc->length);
-			fc->bytesread = (unsigned long)file.gcount();
-
-			// create Azure Block ID value
-			fc->block_id = utility::conversions::to_base64(fc->id);
-			auto stream = concurrency::streams::bytestream::open_istream(buffer);
-			utility::string_t md5 = _XPLATSTR("");
-
-			unsigned long t0 = clock();
-
-			blob.upload_block(fc->block_id, stream, md5);
-
-			fc->seconds = (float)(clock() - t0) / (float)CLOCKS_PER_SEC;
-			fc->threadid = threadid;
-			fc->completed = true;
-		}
-		file.close();
-	}
+	// return back into the C++ class
+	((BlockUpload*)ptr)->ThreadProc( threadid );
 }
 /////////////////////////////////////////////////////////////////////////////
-//
+// split path into folder and filename
 void splitpath( const string& str, std::string& folder, std::string& filename )
 {
 	size_t found;
@@ -217,7 +231,7 @@ void splitpath( const string& str, std::string& folder, std::string& filename )
 	filename = str.substr(found + 1);
 }
 /////////////////////////////////////////////////////////////////////////////
-//
+// lookup a command line argument and return its index
 int find_arg(const char* param, int argc, char* argv[])
 {
 	for( int n = 0; n <argc; n++ ) 
@@ -228,11 +242,11 @@ int find_arg(const char* param, int argc, char* argv[])
 	return -1;
 }
 /////////////////////////////////////////////////////////////////////////////
-//
+// print out tool syntax
 void print_syntax()
 {
 	cout <<
-		"syntax: azblockupload -f localfile -c container [-rf blob-name] [-sa storage-account-name] [-sk storage-access-key] [-v] [-t N]\n\n" \
+		"syntax: azblockupload -f localfile -c container [-rf blob-name] [-sa storage-account-name] [-sk storage-access-key] [-v] [-t N] [-m N]\n\n" \
 		"Copyright (c) 2016, RedBaronOfAzure\n" \
 		"\n"
 		"-f\tfile lon local machine to upload\n" \
@@ -246,6 +260,8 @@ void print_syntax()
 		"-sk\tStorage Access Key. Overrides environment variable STORAGE_ACCESS_KEY\n" \
 		"\n"
 		"-t N\tUse N number of threads to upload. N bust be 1..64. Default is 4\n" \
+		"\n"
+		"-m N\tUse chunk size of N bytes. Must be between 1K and 4MB. Default is 4MB\n" \
 		"\n"
 		"-v\tOutput details of uploaded chunks\n" \
 		"\n"
@@ -288,6 +304,16 @@ int main(int argc, char* argv[] )
 		{
 			print_syntax();
 			cout << "Threads must be 1..64" << endl;
+			return 2;
+		}
+	}
+	if (-1 != (idx = find_arg("-m", argc, argv)))
+	{
+		chunksize = (unsigned long)std::atol(argv[idx + 1]);
+		if (chunksize < 1024 || chunksize > (1024 * 1024 * 4))
+		{
+			print_syntax();
+			cout << "Chunk size must be between 1K and 4MB" << endl;
 			return 2;
 		}
 	}
@@ -339,8 +365,8 @@ int main(int argc, char* argv[] )
 	blkup->verbose = verbose;
 	blkup->ConnectToAzureStorage( storageAccountName, storageAccessKey, containerName);
 
-	int rc = blkup->UploadFile( localfile, remotefile );
-	if ( rc != 0 )
+	bool rc = blkup->UploadFile( localfile, remotefile );
+	if ( !rc )
 	{
 		cout << "Unable to open file";
 	}
@@ -356,5 +382,5 @@ int main(int argc, char* argv[] )
 
 	delete blkup;
 
-	return rc;
+	return 0;
 }
