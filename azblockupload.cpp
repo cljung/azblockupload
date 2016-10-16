@@ -218,7 +218,7 @@ void splitpath( const string& str, std::string& folder, std::string& filename )
 }
 /////////////////////////////////////////////////////////////////////////////
 //
-int find_arg(char* param, int argc, char* argv[])
+int find_arg(const char* param, int argc, char* argv[])
 {
 	for( int n = 0; n <argc; n++ ) 
 	{
