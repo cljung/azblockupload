@@ -8,7 +8,7 @@ Building this sample on an Ubuntu Linux is explanied in the README.md in <a href
 You need to git clone and build something called <a href="https://github.com/microsoft/cpprestsdk">Casablanca and azure-storage-cpp</a>. Casablanca is a C++ REST API client implementation by Microsoft which helps you build clients for any REST based solution. You will find Casablanca referenced from azure-storage-cpp.
 WARNING - the instructions for some reason builds Casablanca as a debug build and azure-storage-cpp as a release build. I did a pure release build of them both.
 
-In order to build and run this sample, you need to make sure that the ROOTDIR definition is currect. The ROOTDIR variable is the parent folder to azkvault, Casablanca and azure-storage-cpp.
+In order to build and run this sample, you need to make sure that the ROOTDIR definition is currect. The ROOTDIR variable is the parent folder to azblockupload, Casablanca and azure-storage-cpp.
 The makefile grabs the parent folder of the current folder and uses as ROOTDIR.
 <pre>
 <code>
