@@ -192,6 +192,9 @@ public:
 				FileChunk *fc = (FileChunk*)(this->queueChunks.front());
 				this->queueChunks.pop();
 
+				if (fc->length != this->chunkSize)
+					buffer.resize(fc->length);
+
 				// read the specified chunk from the file
 				file.seekg(fc->startpos, ios::beg);
 				file.read((char*)&buffer[0], fc->length);
