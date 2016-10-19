@@ -290,11 +290,11 @@ int main(int argc, char* argv[] )
 		return 0;
 	}
 
-	char* envvar = std::getenv("STORAGE_ACCOUNT_NAME");
+	char* envvar = std::getenv("AZURE_STORAGE_ACCOUNT");
 	if (envvar)
 		storageAccountName = envvar;
 
-	if ( ( envvar = std::getenv("STORAGE_ACCESS_KEY") ))
+	if ( ( envvar = std::getenv("AZURE_STORAGE_ACCESS_KEY") ))
 		storageAccessKey = envvar;
 
 	if (-1 != find_arg("-v", argc, argv))
