@@ -25,8 +25,8 @@ Just open the solution in Visual Studio (2015) and rebuild. It will download the
 Run the code with no arguments to see syntax. To upload a file, run with the below arguments
 <pre>
 <code>
-set/export STORAGE_ACCOUNT_NAME=account-name
-set/export STORAGE_ACCESS_KEY=key
+set/export AZURE_STORAGE_ACCOUNT=account-name
+set/export AZURE_STORAGE_ACCESS_KEY=key
 ./azblockupload -f local-file -c container-name
 </code>
 </pre>
